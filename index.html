@@ -1,0 +1,1364 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>证件照生成器 · 本地离线</title>
+<style>
+:root{
+  --bg:#f6f6f4; --panel:#fff; --ink:#16181a; --ink2:#585d63; --muted:#90959b;
+  --line:#e7e5e1; --line2:#f0efec; --accent:#1f5fd0; --accent-soft:#eaf0fb;
+  --ok:#0f7a56; --warn:#a86400; --bad:#b3261e;
+  --r:12px;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+[hidden]{display:none!important}
+html,body{height:100%}
+body{
+  margin:0;background:var(--bg);color:var(--ink);
+  font:14px/1.5 -apple-system,BlinkMacSystemFont,"PingFang SC","Helvetica Neue",Arial,sans-serif;
+  -webkit-font-smoothing:antialiased;overflow:hidden;
+}
+button,input,select{font-family:inherit;font-size:inherit;color:inherit}
+button{cursor:pointer}
+
+/* ---------- 顶栏 ---------- */
+header{
+  height:58px;display:flex;align-items:center;gap:12px;padding:0 20px;
+  background:#fff;border-bottom:1px solid var(--line);position:relative;z-index:5;
+}
+.logo{width:26px;height:26px;border-radius:8px;background:linear-gradient(145deg,#2b2b2b,#000);
+  display:grid;place-items:center;color:#fff;font-size:13px;font-weight:600;letter-spacing:-.5px}
+h1{font-size:15px;font-weight:600;margin:0;letter-spacing:.2px}
+.sub{font-size:11.5px;color:var(--muted);margin-left:2px}
+.spacer{flex:1}
+.pill{display:inline-flex;align-items:center;gap:6px;font-size:11.5px;color:var(--ink2);
+  background:#f4f4f2;border:1px solid var(--line);padding:4px 10px;border-radius:999px}
+.dot{width:6px;height:6px;border-radius:50%;background:var(--ok)}
+.dot.busy{background:var(--warn);animation:pulse 1.1s infinite}
+@keyframes pulse{50%{opacity:.25}}
+
+/* ---------- 布局 ---------- */
+.app{display:grid;grid-template-columns:minmax(0,1fr) 400px;height:calc(100vh - 58px)}
+.left{display:grid;grid-template-rows:1fr auto;min-width:0;border-right:1px solid var(--line)}
+.stage{position:relative;display:flex;align-items:center;justify-content:center;padding:28px;overflow:hidden;
+  background-color:#fafaf8;
+  background-image:radial-gradient(#e3e2de 1px,transparent 1px);background-size:24px 24px}
+.meta{display:flex;align-items:center;gap:16px;padding:10px 20px;border-top:1px solid var(--line);
+  background:#fff;flex-wrap:wrap;min-height:46px}
+.meta .spec{font-size:12px;color:var(--ink2);font-variant-numeric:tabular-nums}
+.meta .spec b{color:var(--ink);font-weight:600}
+.qc{display:flex;gap:6px;flex-wrap:wrap;flex:1;justify-content:flex-end}
+.chip{font-size:11.5px;padding:3px 9px;border-radius:999px;background:#f3f3f1;color:var(--ink2);
+  border:1px solid var(--line);white-space:nowrap}
+.chip.ok{background:#edf7f1;border-color:#cfe8da;color:var(--ok)}
+.chip.warn{background:#fdf4e3;border-color:#f0e0bd;color:var(--warn)}
+
+/* ---------- 画布 ---------- */
+.frame{position:relative;box-shadow:0 12px 34px rgba(15,20,25,.16),0 2px 6px rgba(15,20,25,.10);
+  background:#fff;cursor:grab;touch-action:none;outline:1px solid rgba(0,0,0,.06)}
+.frame:active{cursor:grabbing}
+.frame canvas{display:block;position:absolute;inset:0;width:100%;height:100%}
+#overlay{pointer-events:none}
+.empty{width:min(560px,86%);padding:44px 28px;border:1.5px dashed #d5d3ce;border-radius:16px;
+  text-align:center;background:rgba(255,255,255,.7);backdrop-filter:blur(2px);transition:.18s}
+.empty.hot{border-color:var(--accent);background:var(--accent-soft)}
+.empty h2{margin:14px 0 6px;font-size:16px;font-weight:600}
+.empty p{margin:0;color:var(--muted);font-size:12.5px}
+.upico{width:44px;height:44px;border-radius:12px;background:#f1f0ed;display:grid;place-items:center;margin:0 auto}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:7px;border:1px solid var(--line);
+  background:#fff;border-radius:10px;padding:8px 14px;font-size:13px;transition:.15s;color:var(--ink)}
+.btn:hover{background:#f7f7f5;border-color:#d8d6d1}
+.btn.primary{background:var(--ink);border-color:var(--ink);color:#fff}
+.btn.primary:hover{background:#000}
+.btn.block{width:100%}
+.btn.ghost{border-color:transparent;background:transparent;color:var(--ink2);padding:6px 8px;font-size:12px}
+.btn.ghost:hover{background:#f4f4f2}
+.btn:disabled{opacity:.42;cursor:not-allowed}
+
+/* ---------- 面板 ---------- */
+.panel{overflow-y:auto;background:#fff;overscroll-behavior:contain}
+.sect{padding:16px 18px;border-bottom:1px solid var(--line2)}
+.sect:last-child{border-bottom:none}
+.sect>h3{margin:0 0 11px;font-size:11px;font-weight:600;letter-spacing:.09em;color:var(--muted);
+  text-transform:uppercase;display:flex;align-items:center;gap:8px}
+.sect>h3 .hint{margin-left:auto;letter-spacing:0;text-transform:none;font-weight:400;font-size:11px;color:#b0b4b8}
+.specs{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
+.specs button{border:1px solid var(--line);background:#fff;border-radius:9px;padding:8px 2px 7px;
+  display:flex;flex-direction:column;align-items:center;gap:1px;transition:.14s}
+.specs button:hover{border-color:#cfcdc8;background:#fafaf8}
+.specs button.on{border-color:var(--ink);background:var(--ink);color:#fff}
+.specs .n{font-size:12.5px;font-weight:500;line-height:1.25}
+.specs .d{font-size:10px;color:var(--muted);font-variant-numeric:tabular-nums;letter-spacing:-.2px}
+.specs button.on .d{color:rgba(255,255,255,.62)}
+.custom{display:grid;gap:8px;margin-top:10px}
+.custom .r{display:flex;align-items:center;gap:8px}
+.custom label{font-size:12px;color:var(--ink2);width:26px;flex:none}
+.custom input[type=number]{width:100%;min-width:0;border:1px solid var(--line);border-radius:8px;padding:6px 8px;
+  background:#fafaf8;font-variant-numeric:tabular-nums}
+.custom input:focus{outline:none;border-color:var(--accent);background:#fff}
+.custom select{border:1px solid var(--line);border-radius:8px;padding:6px 6px;background:#fafaf8;flex:none}
+.cPx{font-size:11px;color:var(--muted);font-variant-numeric:tabular-nums}
+
+.sw{display:flex;gap:10px;flex-wrap:wrap}
+.swi{display:flex;flex-direction:column;align-items:center;gap:4px;width:42px}
+.swi i{font-style:normal;font-size:10px;color:var(--muted);line-height:1;white-space:nowrap}
+.swi.on i{color:var(--ink);font-weight:500}
+.sw button{width:42px;height:42px;border-radius:11px;border:1px solid rgba(0,0,0,.10);
+  transition:.15s;padding:0;overflow:hidden;display:grid;place-items:center}
+.sw button:hover{transform:translateY(-1px)}
+.sw button.on{box-shadow:0 0 0 2px #fff,0 0 0 3.5px var(--ink)}
+.sw button.orig{background:#f7f6f4}
+.sw button.grad{background:linear-gradient(180deg,#fff,#e2e9f0)}
+.sw button.orig svg{opacity:.5}
+.swbtn{width:42px;height:42px;border-radius:11px;border:1px dashed var(--line);position:relative;padding:0;
+  overflow:hidden;display:grid;place-items:center}
+.swbtn::after{content:"+";position:absolute;font-size:14px;color:#fff;text-shadow:0 1px 3px rgba(0,0,0,.5)}
+.ctl{display:grid;gap:9px;margin-top:12px}
+.ctl .row{display:flex;align-items:center;gap:10px}
+.ctl .row>label{font-size:12px;color:var(--ink2);width:64px;flex:none}
+.ctl .val{font-size:11px;color:var(--muted);width:44px;text-align:right;flex:none;
+  font-variant-numeric:tabular-nums}
+input[type=range]{-webkit-appearance:none;appearance:none;height:3px;background:#e2e1dd;border-radius:3px;
+  flex:1;min-width:0;outline:none}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:14px;height:14px;border-radius:50%;
+  background:#fff;border:1.5px solid #b9b7b2;box-shadow:0 1px 3px rgba(0,0,0,.15);cursor:pointer;transition:.12s}
+input[type=range]::-webkit-slider-thumb:hover{border-color:var(--ink)}
+.tog{display:flex;align-items:center;gap:10px;cursor:pointer;user-select:none}
+.tog input{display:none}
+.tog .track{width:34px;height:20px;border-radius:999px;background:#dcdad5;position:relative;transition:.18s;flex:none}
+.tog .track::after{content:"";position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;
+  background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.2);transition:.18s}
+.tog input:checked+.track{background:var(--ink)}
+.tog input:checked+.track::after{transform:translateX(14px)}
+.tog .tl{font-size:12.5px}
+.tog .ts{font-size:11px;color:var(--muted);display:block;margin-top:1px}
+.btns{display:flex;gap:8px;margin-top:10px}
+.btns .btn{flex:1}
+.seg2{display:flex;border:1px solid var(--line);border-radius:9px;overflow:hidden}
+.seg2 button{flex:1;border:0;background:#fff;padding:6px 0;font-size:12px;color:var(--ink2)}
+.seg2 button.on{background:var(--ink);color:#fff}
+.tip{font-size:11.5px;color:var(--muted);line-height:1.6;margin:8px 0 0}
+.tip kbd{background:#f2f1ee;border:1px solid var(--line);border-radius:4px;padding:0 4px;font-size:10.5px;
+  font-family:ui-monospace,monospace}
+
+/* ---------- 遮罩 / 弹窗 / 提示 ---------- */
+.busy{position:absolute;left:50%;bottom:22px;transform:translateX(-50%);background:rgba(22,24,26,.9);
+  color:#fff;font-size:12px;padding:7px 14px;border-radius:999px;display:none;align-items:center;gap:8px;
+  backdrop-filter:blur(6px);z-index:4}
+.busy.on{display:flex}
+.spin{width:11px;height:11px;border:1.5px solid rgba(255,255,255,.3);border-top-color:#fff;border-radius:50%;
+  animation:sp .7s linear infinite}
+@keyframes sp{to{transform:rotate(360deg)}}
+.modal{position:fixed;inset:0;background:rgba(20,22,25,.55);display:none;place-items:center;z-index:40;
+  backdrop-filter:blur(3px);padding:24px}
+.modal.on{display:grid}
+.sheet{background:#fff;border-radius:16px;width:min(720px,100%);max-height:90vh;display:flex;flex-direction:column;
+  overflow:hidden;box-shadow:0 24px 60px rgba(0,0,0,.3)}
+.sheet header{height:auto;padding:14px 18px;border-bottom:1px solid var(--line);display:flex;
+  align-items:center;gap:12px;background:#fff}
+.sheet header h4{margin:0;font-size:14px;font-weight:600}
+.sheet header .info{font-size:11.5px;color:var(--muted);font-variant-numeric:tabular-nums}
+.sheet .body{padding:20px;overflow:auto;background:#f7f7f5;display:grid;place-items:center}
+.sheet .body img{max-width:100%;max-height:52vh;box-shadow:0 6px 20px rgba(0,0,0,.14);background:#fff}
+.sheet .foot{padding:14px 18px;display:flex;gap:10px;align-items:center;border-top:1px solid var(--line)}
+.sheet select{border:1px solid var(--line);border-radius:9px;padding:7px 10px;background:#fafaf8}
+.toast{position:fixed;left:50%;bottom:28px;transform:translate(-50%,14px);background:var(--ink);color:#fff;
+  font-size:12.5px;padding:9px 16px;border-radius:10px;opacity:0;pointer-events:none;transition:.24s;z-index:60;
+  max-width:80vw;text-align:center}
+.toast.on{opacity:1;transform:translate(-50%,0)}
+.banner{background:#fdf4e3;border-bottom:1px solid #f0e0bd;color:#7a4c00;font-size:12.5px;padding:9px 20px;
+  display:none;align-items:center;gap:8px}
+.banner.on{display:flex}
+@media (max-width:980px){
+  body{overflow:auto}
+  .app{grid-template-columns:1fr;height:auto}
+  .left{height:74vh;border-right:none;border-bottom:1px solid var(--line)}
+  .panel{overflow:visible}
+}
+</style>
+</head>
+<body>
+<header>
+  <div class="logo">ID</div>
+  <h1>证件照生成器</h1>
+  <span class="sub">本地运行 · 照片不出本机</span>
+  <div class="spacer"></div>
+  <span class="pill"><i class="dot" id="statusDot"></i><span id="statusText">就绪</span></span>
+</header>
+<div class="banner" id="banner"></div>
+
+<div class="app">
+  <div class="left">
+    <div class="stage" id="stage">
+      <div class="frame" id="frame" hidden>
+        <canvas id="out"></canvas>
+        <canvas id="overlay"></canvas>
+      </div>
+      <div class="empty" id="empty">
+        <div class="upico">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#8b9096" stroke-width="1.6"
+            stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="3"/>
+            <circle cx="9" cy="9" r="1.8"/><path d="M21 15l-5-5L5 21"/></svg>
+        </div>
+        <h2>拖入 / 点击上传人像</h2>
+        <p>也可以按 ⌘V 粘贴 · 建议正脸、光线均匀、纯色背景</p>
+        <div style="margin-top:16px;display:flex;gap:8px;justify-content:center">
+          <button class="btn primary" id="pickBtn">选择照片</button>
+          <button class="btn" id="demoBtn">用示例图试试</button>
+        </div>
+      </div>
+      <div class="busy" id="busy"><i class="spin"></i><span id="busyText">处理中</span></div>
+    </div>
+    <div class="meta">
+      <span class="spec" id="specMeta">—</span>
+      <div class="qc" id="qc"></div>
+    </div>
+  </div>
+
+  <aside class="panel">
+    <section class="sect">
+      <h3>规格 <span class="hint" id="specHint"></span></h3>
+      <div class="specs" id="specs"></div>
+      <div class="custom" id="customBox" hidden>
+        <div class="r">
+          <label>宽</label><input type="number" id="cw" min="40" max="4000">
+          <label style="width:auto">高</label><input type="number" id="ch" min="40" max="4000">
+          <select id="cu"><option value="mm">mm</option><option value="px">px</option></select>
+        </div>
+        <div class="r">
+          <label>DPI</label><input type="number" id="cdpi" min="72" max="1200">
+          <span class="cPx" id="cPx"></span>
+        </div>
+      </div>
+    </section>
+
+    <section class="sect">
+      <h3>背景 <span class="hint" id="bgHint">自动抠图换底</span></h3>
+      <div class="sw" id="sw"></div>
+      <input type="color" id="customColor" value="#438edb" hidden>
+      <div class="ctl">
+        <label class="tog">
+          <input type="checkbox" id="cutout" checked>
+          <span class="track"></span>
+          <span><span class="tl">智能抠图换底</span><span class="ts">本机模型分离人像与背景</span></span>
+        </label>
+        <div class="row">
+          <label>边缘羽化</label>
+          <input type="range" id="feather" min="0" max="4" step="0.2" value="1.2">
+          <span class="val" id="featherV">1.2px</span>
+        </div>
+        <div class="row">
+          <label>抠图阈值</label>
+          <input type="range" id="threshold" min="30" max="72" step="1" value="50">
+          <span class="val" id="thresholdV">50%</span>
+        </div>
+        <div class="row">
+          <label>修补画笔</label>
+          <div class="seg2" style="flex:1" id="brush">
+            <button data-b="none" class="on">关</button>
+            <button data-b="erase">擦除残留</button>
+            <button data-b="restore">恢复人像</button>
+          </div>
+        </div>
+        <div class="row" id="brushSizeRow" hidden>
+          <label>笔刷</label>
+          <input type="range" id="brushSize" min="4" max="60" step="2" value="14">
+          <span class="val" id="brushSizeV">14px</span>
+        </div>
+      </div>
+    </section>
+
+    <section class="sect">
+      <h3>构图 <span class="hint">拖动画布也可调整</span></h3>
+      <div class="ctl">
+        <div class="row"><label>头部占比</label><input type="range" id="headRatio" min="52" max="88" step="1" value="68">
+          <span class="val" id="headRatioV">68%</span></div>
+        <div class="row"><label>头顶留白</label><input type="range" id="topMargin" min="0" max="22" step="1" value="10">
+          <span class="val" id="topMarginV">10%</span></div>
+        <div class="row"><label>旋转</label><input type="range" id="rot" min="-20" max="20" step="0.5" value="0">
+          <span class="val" id="rotV">0°</span></div>
+        <div class="row"><label>亮度</label><input type="range" id="bright" min="70" max="130" step="1" value="100">
+          <span class="val" id="brightV">100</span></div>
+        <div class="row"><label>对比度</label><input type="range" id="contrast" min="70" max="140" step="1" value="100">
+          <span class="val" id="contrastV">100</span></div>
+      </div>
+      <div class="btns">
+        <button class="btn" id="autoBtn">自动对齐人脸</button>
+        <button class="btn" id="flipBtn">水平翻转</button>
+        <button class="btn" id="resetBtn">重置</button>
+      </div>
+      <label class="tog" style="margin-top:12px">
+        <input type="checkbox" id="guides" checked>
+        <span class="track"></span>
+        <span><span class="tl">构图辅助线</span></span>
+      </label>
+    </section>
+
+    <section class="sect">
+      <h3>导出 <span class="hint">按规格原尺寸，自动写入 DPI</span></h3>
+      <div class="seg2" id="fmt">
+        <button data-f="jpg" class="on">JPG</button>
+        <button data-f="png">PNG</button>
+      </div>
+      <div class="ctl">
+        <div class="row"><label>质量</label><input type="range" id="quality" min="70" max="100" step="1" value="95">
+          <span class="val" id="qualityV">95</span></div>
+      </div>
+      <div class="btns">
+        <button class="btn primary" id="dlBtn">下载单张</button>
+        <button class="btn" id="sheetBtn">排版打印</button>
+      </div>
+      <p class="tip" id="exportTip">—</p>
+    </section>
+
+    <section class="sect">
+      <h3>说明</h3>
+      <p class="tip">
+        1. 上传后自动检测人脸并套用标准构图（头顶留白 10%、头部占比 68%），可用滑块或拖动画布微调。<br>
+        2. 「智能抠图」在本机浏览器内运行模型，照片不上传任何服务器。<br>
+        3. 抠图有残留（深色头发、深色背景常见）时：先调「抠图阈值」，再把「修补画笔」切到「擦除残留」，在画面上直接涂抹；涂多了用「恢复人像」擦回来。<br>
+        4. 导出的 JPG/PNG 已写入 DPI，冲印时按「实际尺寸」打印即可得到标准大小。<br>
+        5. 快捷键：<kbd>←↑→↓</kbd> 微移 1px，加 <kbd>Shift</kbd> 移 10px；双击画布重新自动对齐。
+      </p>
+    </section>
+  </aside>
+</div>
+
+<div class="modal" id="modal">
+  <div class="sheet">
+    <header>
+      <h4>排版预览</h4>
+      <span class="info" id="sheetInfo"></span>
+      <div class="spacer" style="flex:1"></div>
+      <button class="btn ghost" id="closeModal">关闭</button>
+    </header>
+    <div class="body"><img id="sheetImg" alt="排版预览"></div>
+    <div class="foot">
+      <select id="paper"></select>
+      <div style="flex:1"></div>
+      <button class="btn primary" id="sheetDl">下载打印图</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+<input type="file" id="file" accept="image/*" hidden>
+
+<script src="vendor/selfie/selfie_segmentation.js"></script>
+<script src="vendor/face/face_detection.js"></script>
+<script>
+(function(){
+'use strict';
+
+/* ================= 常量 ================= */
+const BG_COLORS = {
+  white:'#ffffff', blue:'#438edb', red:'#d40000', gray:'#e3e3e3'
+};
+const SPECS = [
+  {id:'p1',  name:'一寸',    mm:[25,35], dpi:300, tag:'最常用'},
+  {id:'p1s', name:'小一寸',  mm:[22,32], dpi:300, tag:'驾照'},
+  {id:'p1l', name:'大一寸',  mm:[33,48], dpi:300, tag:'护照'},
+  {id:'p2',  name:'二寸',    mm:[35,49], dpi:300, tag:'简历'},
+  {id:'p2s', name:'小二寸',  mm:[35,45], dpi:300, tag:'港澳'},
+  {id:'p2l', name:'大二寸',  mm:[35,53], dpi:300, tag:''},
+  {id:'exam',name:'报名照',  w:480, h:640, dpi:300, tag:'考研'},
+  {id:'visa',name:'美签',    mm:[51,51], w:600, h:600, dpi:300, tag:'51×51'}
+];
+const PAPERS = [
+  {id:'p6', name:'6寸相纸 152×102mm（1800×1200 @300dpi）', w:1800, h:1200},
+  {id:'p5', name:'5寸相纸 127×89mm（1500×1050 @300dpi）', w:1500, h:1050},
+  {id:'a4', name:'A4 纸 210×297mm（2480×3508 @300dpi）', w:2480, h:3508}
+];
+const RS = 2; // 内部渲染倍率
+
+/* ================= 状态 ================= */
+const S = {
+  img:null, iw:0, ih:0, file:'',
+  specId:'p1',
+  custom:{w:295,h:413,dpi:300,unit:'px'},
+  k:1, cx:0, cy:0, rot:0, flip:false,
+  headRatio:.68, topMargin:.10,
+  bg:'blue', customBg:'#438edb',
+  cutout:true, feather:1.2, threshold:0.5, brush:'none', brushSize:14,
+  bright:1, contrast:1,
+  face:null, guides:true,
+  format:'jpg', quality:.95
+};
+
+/* ================= 元素 ================= */
+const $ = s => document.querySelector(s);
+const stage = $('#stage'), frame = $('#frame'), out = $('#out'), overlay = $('#overlay');
+const emptyBox = $('#empty'), busy = $('#busy'), busyText = $('#busyText');
+const qcBox = $('#qc'), specMeta = $('#specMeta'), statusDot = $('#statusDot'), statusText = $('#statusText');
+
+/* ================= 工具 ================= */
+function toast(msg, ms){ const t=$('#toast'); t.textContent=msg; t.classList.add('on');
+  clearTimeout(t._t); t._t=setTimeout(()=>t.classList.remove('on'), ms||2200); }
+function setBusy(on, txt){ busy.classList.toggle('on', !!on); if(txt) busyText.textContent=txt;
+  statusDot.classList.toggle('busy', !!on); }
+function setStatus(txt){ statusText.textContent = txt; }
+function clamp(v,a,b){ return Math.min(b, Math.max(a, v)); }
+function mm2px(mm, dpi){ return Math.round(mm/25.4*dpi); }
+
+function outSize(){
+  if(S.specId === 'custom'){
+    const c = S.custom;
+    if(c.unit === 'px') return {w:Math.max(40,Math.round(c.w)), h:Math.max(40,Math.round(c.h)), dpi:c.dpi, mm:null};
+    return {w:mm2px(c.w,c.dpi), h:mm2px(c.h,c.dpi), dpi:c.dpi, mm:[c.w,c.h]};
+  }
+  const s = SPECS.find(x=>x.id===S.specId) || SPECS[0];
+  if(s.w && s.h) return {w:s.w, h:s.h, dpi:s.dpi, mm:s.mm||null};
+  return {w:mm2px(s.mm[0],s.dpi), h:mm2px(s.mm[1],s.dpi), dpi:s.dpi, mm:s.mm};
+}
+
+/* ================= 渲染 ================= */
+const layer = document.createElement('canvas');
+const lctx = layer.getContext('2d');
+let maskCanvas = null;
+
+function applyTransform(c, W, H){
+  c.translate(W/2, H/2);
+  if(S.rot) c.rotate(S.rot*Math.PI/180);
+  if(S.flip) c.scale(-1,1);
+  c.scale(S.k, S.k);
+  c.translate(-S.cx, -S.cy);
+}
+
+function paintBg(c, W, H){
+  if(S.bg === 'gradient'){
+    const g = c.createLinearGradient(0,0,0,H);
+    g.addColorStop(0,'#ffffff'); g.addColorStop(.55,'#f2f5f8'); g.addColorStop(1,'#dfe7ef');
+    c.fillStyle = g;
+  } else if(S.bg === 'custom'){
+    c.fillStyle = S.customBg;
+  } else {
+    c.fillStyle = BG_COLORS[S.bg] || '#ffffff';
+  }
+  c.fillRect(0,0,W,H);
+}
+
+function render(){
+  if(!S.img) return;
+  const {w:W, h:H} = outSize();
+  if(out.width !== W*RS || out.height !== H*RS){
+    out.width = W*RS; out.height = H*RS;
+    layer.width = W*RS; layer.height = H*RS;
+    fitFrame();
+  }
+  const ctx = out.getContext('2d');
+  ctx.setTransform(1,0,0,1,0,0);
+  ctx.clearRect(0,0,out.width,out.height);
+  ctx.setTransform(RS,0,0,RS,0,0);
+  ctx.imageSmoothingQuality = 'high';
+
+  const useCut = S.cutout && maskCanvas && S.bg !== 'original';
+  paintBg(ctx, W, H);
+
+  lctx.setTransform(1,0,0,1,0,0);
+  lctx.clearRect(0,0,layer.width,layer.height);
+  lctx.setTransform(RS,0,0,RS,0,0);
+  lctx.imageSmoothingQuality = 'high';
+  lctx.save();
+  applyTransform(lctx, W, H);
+  lctx.filter = 'brightness(' + S.bright + ') contrast(' + S.contrast + ')';
+  lctx.drawImage(S.img, 0, 0);
+  lctx.restore();
+
+  if(useCut){
+    lctx.save();
+    lctx.globalCompositeOperation = 'destination-in';
+    lctx.filter = 'blur(' + S.feather + 'px)';
+    applyTransform(lctx, W, H);
+    lctx.drawImage(maskCanvas, 0, 0, S.iw, S.ih);
+    lctx.restore();
+  }
+
+  ctx.setTransform(1,0,0,1,0,0);
+  ctx.drawImage(layer, 0, 0);
+  ctx.setTransform(RS,0,0,RS,0,0);
+
+  drawOverlay();
+  updateQC();
+}
+
+function fitFrame(){
+  if(!S.img) return;
+  const {w:W, h:H} = outSize();
+  const box = stage.getBoundingClientRect();
+  const availW = Math.max(120, box.width - 60);
+  const availH = Math.max(120, box.height - 48);
+  let w = availW, h = w * H / W;
+  if(h > availH){ h = availH; w = h * W / H; }
+  frame.style.width = Math.round(w) + 'px';
+  frame.style.height = Math.round(h) + 'px';
+  drawOverlay();
+}
+
+function drawOverlay(){
+  const r = frame.getBoundingClientRect();
+  if(!r.width || frame.hidden) return;
+  const dpr = Math.min(3, window.devicePixelRatio || 1);
+  if(overlay.width !== Math.round(r.width*dpr) || overlay.height !== Math.round(r.height*dpr)){
+    overlay.width = Math.round(r.width*dpr);
+    overlay.height = Math.round(r.height*dpr);
+  }
+  const c = overlay.getContext('2d');
+  c.setTransform(dpr,0,0,dpr,0,0);
+  c.clearRect(0,0,r.width,r.height);
+  if(!S.img || !S.guides) return;
+
+  const W = r.width, H = r.height;
+  const topY = S.topMargin*H;
+  const chinY = (S.topMargin + S.headRatio)*H;
+  const eyeY = topY + S.headRatio*H*0.46;
+
+  c.save();
+  c.lineWidth = 1;
+  c.setLineDash([4,4]);
+  c.strokeStyle = 'rgba(220,50,50,.55)';
+  line(topY); line(chinY);
+  c.strokeStyle = 'rgba(30,110,220,.45)';
+  line(eyeY);
+  c.strokeStyle = 'rgba(0,0,0,.16)';
+  c.beginPath(); c.moveTo(W/2,0); c.lineTo(W/2,H); c.stroke();
+  c.restore();
+
+  c.font = '10px -apple-system,"PingFang SC",sans-serif';
+  label('头顶', topY, W);
+  label('下巴', chinY, W);
+  label('眼睛', eyeY, W);
+
+  function line(y){
+    if(y < -2 || y > H+2) return;
+    c.beginPath(); c.moveTo(0,y); c.lineTo(W,y); c.stroke();
+  }
+  function label(txt, y, W){
+    if(y < 0 || y > H) return;
+    const t = txt + ' ' + Math.round(y);
+    const wdt = c.measureText(t).width + 10;
+    c.save();
+    c.fillStyle = 'rgba(255,255,255,.82)';
+    c.fillRect(4, y-11, wdt, 13);
+    c.fillStyle = 'rgba(60,60,60,.85)';
+    c.fillText(t, 9, y);
+    c.restore();
+  }
+}
+
+/* ================= 质量自检 ================= */
+function headTopSrc(){
+  if(!S.face) return 0;
+  return S.face.cy - S.face.fh*0.70;
+}
+function updateQC(){
+  const {w:W, h:H} = outSize();
+  specMeta.innerHTML = '<b>' + W + ' × ' + H + ' px</b>' +
+    (outSize().mm ? ' · ' + outSize().mm[0] + ' × ' + outSize().mm[1] + ' mm' : '') +
+    ' · ' + outSize().dpi + ' dpi';
+
+  const items = [];
+  if(S.face){
+    const headH = S.face.fh*1.55*S.k;
+    const ratio = headH/H;
+    if(ratio < .55) items.push(['warn','头偏小 '+Math.round(ratio*100)+'%']);
+    else if(ratio > .84) items.push(['warn','头偏大 '+Math.round(ratio*100)+'%']);
+    else items.push(['ok','头部占比 '+Math.round(ratio*100)+'%']);
+
+    const topOut = (headTopSrc() - S.cy)*S.k + H/2;
+    if(topOut < H*0.015) items.push(['bad','头顶被裁']);
+    else if(topOut/H > .20) items.push(['warn','上方留白偏多']);
+
+    const fx = (S.face.cx - S.cx)*S.k + W/2;
+    if(Math.abs(fx - W/2) > W*0.07) items.push(['warn','人像偏心']);
+  } else {
+    items.push(['warn','未检测到人脸']);
+  }
+  // 覆盖检查
+  const corners = [[0,0],[W,0],[0,H],[W,H]];
+  let outside = false;
+  for(const [x,y] of corners){
+    const sx = (x - W/2)/S.k + S.cx;
+    const sy = (y - H/2)/S.k + S.cy;
+    if(sx < -1 || sy < -1 || sx > S.iw+1 || sy > S.ih+1) outside = true;
+  }
+  if(outside) items.push(['warn','画面有空白边']);
+  else items.push(['ok','满幅覆盖']);
+
+  qcBox.innerHTML = items.map(([k,t]) =>
+    '<span class="chip ' + (k==='ok'?'ok':'warn') + '">' + t + '</span>').join('');
+}
+
+/* ================= 自动构图 ================= */
+function autofit(keepParams){
+  if(!S.img) return;
+  const {w:W, h:H} = outSize();
+  if(S.face){
+    const headH = S.face.fh*1.55;
+    const coverK = Math.max(W/S.iw, H/S.ih);
+    S.k = Math.max((H*S.headRatio)/headH, coverK);
+    const top = headTopSrc();
+    S.cy = top - (H*S.topMargin - H/2)/S.k;
+    S.cx = S.face.cx;
+    // 满幅前提下别让人像贴边
+    const half = H/2/S.k, halfW = W/2/S.k;
+    S.cy = clamp(S.cy, half, S.ih - half);
+    S.cx = clamp(S.cx, halfW, S.iw - halfW);
+  } else {
+    S.k = Math.max(W/S.iw, H/S.ih);
+    S.cx = S.iw/2; S.cy = S.ih/2;
+  }
+  if(!keepParams) S.rot = 0;
+  render();
+}
+
+/* ================= 人脸检测 / 抠图 ================= */
+let faceDet = null, segmenter = null, engineState = 'idle';
+
+async function initEngines(){
+  if(engineState !== 'idle') return engineState;
+  engineState = 'loading';
+  setBusy(true, '正在加载本机模型…');
+  try{
+    if(typeof FaceDetection === 'undefined') throw new Error('人脸模型未加载');
+    faceDet = new FaceDetection({locateFile:f => 'vendor/face/' + f});
+    faceDet.setOptions({model:'short', minDetectionConfidence:0.5});
+    faceDet.onResults(r => { faceDet._res = r; });
+    await faceDet.initialize();
+
+    if(typeof SelfieSegmentation === 'undefined') throw new Error('抠图模型未加载');
+    segmenter = new SelfieSegmentation({locateFile:f => 'vendor/selfie/' + f});
+    segmenter.setOptions({modelSelection:0});
+    segmenter.onResults(r => { segmenter._res = r; });
+    await segmenter.initialize();
+
+    engineState = 'ready';
+    setBusy(false);
+    return 'ready';
+  }catch(err){
+    engineState = 'error';
+    setBusy(false);
+    console.error(err);
+    const _hint = location.protocol === 'file:' ? '（本地打开请用「启动.command」，勿直接双击 HTML）' : '（请刷新重试）';
+    toast('模型加载失败：' + err.message + _hint, 5000);
+    $('#cutout').checked = false; S.cutout = false;
+    document.querySelectorAll('#sw button').forEach(b => { if(b.dataset.bg !== 'original') b.disabled = true; });
+    $('#bgHint').textContent = '抠图不可用';
+    throw err;
+  }
+}
+
+function smallCanvas(img, maxDim){
+  const s = Math.min(1, maxDim/Math.max(img.naturalWidth, img.naturalHeight));
+  const c = document.createElement('canvas');
+  c.width = Math.max(1, Math.round(img.naturalWidth*s));
+  c.height = Math.max(1, Math.round(img.naturalHeight*s));
+  const cx = c.getContext('2d');
+  cx.imageSmoothingQuality = 'high';
+  cx.drawImage(img, 0, 0, c.width, c.height);
+  return c;
+}
+
+async function detectFace(){
+  const c = smallCanvas(S.img, 640);
+  faceDet._res = null;
+  await faceDet.send({image:c});
+  const res = faceDet._res;
+  if(!res || !res.detections || !res.detections.length){ S.face = null; return; }
+  let best = null, bestA = 0;
+  for(const d of res.detections){
+    const bb = d.boundingBox;
+    const a = bb.width*bb.height;
+    if(a > bestA){ bestA = a; best = bb; }
+  }
+  S.face = {
+    cx: best.xCenter*S.iw,
+    cy: best.yCenter*S.ih,
+    fw: best.width*S.iw,
+    fh: best.height*S.ih
+  };
+}
+
+let maskRaw = null;   // 原始灰度蒙版（alpha=255，灰度在 RGB）
+let fixCanvas = null; // 手动画笔修正层（白=人像，黑=背景，alpha>0 表示已修）
+let fixCtx = null;
+let maskRawW = 0, maskRawH = 0;
+
+async function buildMask(){
+  const c = smallCanvas(S.img, 896);
+  segmenter._res = null;
+  await segmenter.send({image:c});
+
+  const res = segmenter._res;
+  if(!res || !res.segmentationMask) throw new Error('抠图无结果');
+
+  const raw = res.segmentationMask;
+  const rw = raw.width || 256, rh = raw.height || 256;
+  const m = document.createElement('canvas');
+  m.width = rw; m.height = rh;
+  const mc = m.getContext('2d', {willReadFrequently:true});
+  mc.drawImage(raw, 0, 0, rw, rh);
+  const id = mc.getImageData(0, 0, rw, rh);
+  const d = id.data;
+  for(let i = 0; i < d.length; i += 4){
+    const v = d[i];
+    d[i] = d[i+1] = d[i+2] = v;
+    d[i+3] = 255;
+  }
+  mc.putImageData(id, 0, 0);
+  maskRaw = m; maskRawW = rw; maskRawH = rh;
+  fixCanvas = document.createElement('canvas');
+  fixCanvas.width = rw; fixCanvas.height = rh;
+  fixCtx = fixCanvas.getContext('2d', {willReadFrequently:true});
+  processMask();
+}
+
+/* 阈值 + 两级放大 + 轻模糊 → 最终蒙版（alpha 决定人像可见度） */
+function processMask(){
+  if(!maskRaw) return;
+  const t = S.threshold;
+  const w = 0.09;
+  const src = maskRaw.getContext('2d').getImageData(0, 0, maskRawW, maskRawH);
+  const d = src.data;
+  let corr = null;
+  if(fixCtx) corr = fixCtx.getImageData(0, 0, maskRawW, maskRawH).data;
+  for(let i = 0; i < d.length; i += 4){
+    let a;
+    if(corr && corr[i+3] > 8){
+      a = corr[i];                     // 手动画笔优先
+    } else {
+      let v = d[i] / 255;
+      v = (v - (t - w)) / (2*w);
+      v = v < 0 ? 0 : v > 1 ? 1 : v;
+      v = v*v*(3 - 2*v);               // smoothstep
+      a = Math.round(v*255);
+    }
+    d[i+3] = a;
+  }
+
+  const small = document.createElement('canvas');
+  small.width = maskRawW; small.height = maskRawH;
+  small.getContext('2d').putImageData(src, 0, 0);
+
+  const big = document.createElement('canvas');
+  big.width = maskRawW*2; big.height = maskRawH*2;
+  const mc3 = big.getContext('2d');
+  mc3.imageSmoothingQuality = 'high';
+  mc3.filter = 'blur(0.9px)';
+  mc3.drawImage(small, 0, 0, big.width, big.height);
+  maskCanvas = big;
+}
+
+async function analyze(){
+  setBusy(true, '检测人脸…');
+  setStatus('分析中');
+  try{
+    await initEngines();
+    try{ await detectFace(); }catch(e){ console.warn('face', e); S.face = null; }
+    render();
+    setBusy(true, '抠图换底…');
+    try{ await buildMask(); }
+    catch(e){ console.warn('mask', e); maskCanvas = null; toast('抠图失败，已保留原背景'); }
+    setBusy(false); setStatus('就绪');
+    S.headRatio = .68; S.topMargin = .10;
+    $('#headRatio').value = 68; $('#topMargin').value = 10;
+    $('#headRatioV').textContent = '68%'; $('#topMarginV').textContent = '10%';
+    autofit();
+  }catch(e){
+    setBusy(false); setStatus('仅手动模式');
+    autofit();
+  }
+}
+
+/* ================= 载入照片 ================= */
+async function loadFile(file){
+  if(!file) return;
+  if(!/^image\//.test(file.type)){ toast('请选择图片文件'); return; }
+  const url = URL.createObjectURL(file);
+  const img = new Image();
+  img.onload = async () => {
+    S.img = img; S.iw = img.naturalWidth; S.ih = img.naturalHeight;
+    S.file = (file.name || 'photo').replace(/\.[^.]+$/, '');
+    S.rot = 0; S.flip = false; maskCanvas = null; fixCanvas = null; fixCtx = null;
+    $('#rot').value = 0; $('#rotV').textContent = '0°';
+    emptyBox.hidden = true; frame.hidden = false;
+    fitFrame();
+    render();
+    await analyze();
+    URL.revokeObjectURL(url);
+  };
+  img.onerror = () => { toast('图片读取失败'); URL.revokeObjectURL(url); };
+  img.src = url;
+}
+
+/* ================= 导出 ================= */
+function flatCanvas(){
+  render();
+  const {w:W, h:H} = outSize();
+  const c = document.createElement('canvas');
+  c.width = W; c.height = H;
+  const cx = c.getContext('2d');
+  cx.imageSmoothingQuality = 'high';
+  cx.drawImage(out, 0, 0, W, H);
+  return c;
+}
+
+let CRC_TABLE = null;
+function crc32(bytes){
+  if(!CRC_TABLE){
+    CRC_TABLE = new Uint32Array(256);
+    for(let n=0;n<256;n++){
+      let c = n;
+      for(let k=0;k<8;k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1;
+      CRC_TABLE[n] = c >>> 0;
+    }
+  }
+  let crc = 0xFFFFFFFF;
+  for(let i=0;i<bytes.length;i++) crc = CRC_TABLE[(crc ^ bytes[i]) & 0xFF] ^ (crc >>> 8);
+  return (crc ^ 0xFFFFFFFF) >>> 0;
+}
+
+async function toBlobWithDpi(canvas, type, quality, dpi){
+  const blob = await new Promise(res => canvas.toBlob(res, type, quality));
+  if(!blob) return null;
+  if(type === 'image/jpeg'){
+    const buf = new Uint8Array(await blob.arrayBuffer());
+    if(buf[0] === 0xFF && buf[1] === 0xD8){
+      let p = 2;
+      while(p < buf.length - 16 && buf[p] === 0xFF){
+        const marker = buf[p+1];
+        const len = (buf[p+2]<<8) | buf[p+3];
+        if(marker === 0xE0 && buf[p+4] === 0x4A && buf[p+5] === 0x46){
+          buf[p+11] = 1;
+          buf[p+12] = (dpi>>8)&0xFF; buf[p+13] = dpi&0xFF;
+          buf[p+14] = (dpi>>8)&0xFF; buf[p+15] = dpi&0xFF;
+          break;
+        }
+        if(marker === 0xDA) break;
+        p += 2 + len;
+      }
+    }
+    return new Blob([buf], {type:'image/jpeg'});
+  }
+  if(type === 'image/png'){
+    const buf = new Uint8Array(await blob.arrayBuffer());
+    // IHDR 结束于 33 字节，之后插入 pHYs
+    const chunk = new Uint8Array(21);
+    const dv = new DataView(chunk.buffer);
+    dv.setUint32(0, 9);
+    chunk.set([0x70,0x48,0x59,0x73], 4); // pHYs
+    const ppm = Math.round(dpi/0.0254);
+    dv.setUint32(8, ppm); dv.setUint32(12, ppm);
+    chunk[16] = 1;
+    dv.setUint32(17, crc32(chunk.subarray(4,17)));
+    const head = buf.subarray(0, 33), tail = buf.subarray(33);
+    return new Blob([head, chunk, tail], {type:'image/png'});
+  }
+  return blob;
+}
+
+function download(blob, name){
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = name;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(()=>URL.revokeObjectURL(a.href), 4000);
+}
+
+function stamp(){
+  const d = new Date();
+  const p = n => String(n).padStart(2,'0');
+  return '' + d.getFullYear() + p(d.getMonth()+1) + p(d.getDate());
+}
+
+async function downloadSingle(){
+  if(!S.img){ toast('请先上传照片'); return; }
+  const {w:W, h:H, dpi} = outSize();
+  const c = flatCanvas();
+  const type = S.format === 'png' ? 'image/png' : 'image/jpeg';
+  const blob = await toBlobWithDpi(c, type, S.quality, dpi);
+  if(!blob){ toast('导出失败'); return; }
+  const specName = S.specId === 'custom' ? '自定义' : (SPECS.find(s=>s.id===S.specId)||{}).name;
+  const bgName = S.bg === 'original' ? '原背景' : ({white:'白底',blue:'蓝底',red:'红底',gray:'灰底',
+    gradient:'渐变底',custom:'自定义底'}[S.bg] || '');
+  download(blob, '证件照_' + specName + '_' + W + 'x' + H + '_' + bgName + '_' + stamp() + '.' + S.format);
+  toast('已导出 ' + W + '×' + H + ' · ' + dpi + 'dpi');
+}
+
+/* ================= 排版 ================= */
+let sheetCanvas = null;
+async function buildSheet(paperId){
+  if(!S.img){ toast('请先上传照片'); return null; }
+  const p = PAPERS.find(x=>x.id===paperId) || PAPERS[0];
+  const cell = flatCanvas();
+  const cols = Math.floor(p.w/cell.width);
+  const rows = Math.floor(p.h/cell.height);
+  if(cols < 1 || rows < 1){ toast('当前规格超出相纸尺寸'); return null; }
+  const c = document.createElement('canvas');
+  c.width = p.w; c.height = p.h;
+  const cx = c.getContext('2d');
+  cx.fillStyle = '#fff'; cx.fillRect(0,0,p.w,p.h);
+  const tw = cols*cell.width, th = rows*cell.height;
+  const ox = Math.floor((p.w - tw)/2), oy = Math.floor((p.h - th)/2);
+  for(let r=0;r<rows;r++){
+    for(let k=0;k<cols;k++){
+      cx.drawImage(cell, ox + k*cell.width, oy + r*cell.height);
+    }
+  }
+  // 裁切线
+  cx.strokeStyle = 'rgba(0,0,0,.22)';
+  cx.lineWidth = 1;
+  for(let r=0;r<=rows;r++){
+    const y = Math.round(oy + r*cell.height) + .5;
+    cx.beginPath(); cx.moveTo(ox, y); cx.lineTo(ox+tw, y); cx.stroke();
+  }
+  for(let k=0;k<=cols;k++){
+    const x = Math.round(ox + k*cell.width) + .5;
+    cx.beginPath(); cx.moveTo(x, oy); cx.lineTo(x, oy+th); cx.stroke();
+  }
+  sheetCanvas = c;
+  return {canvas:c, cols, rows, count:cols*rows, paper:p};
+}
+
+async function openSheet(){
+  if(!S.img){ toast('请先上传照片'); return; }
+  const info = await buildSheet($('#paper').value);
+  if(!info) return;
+  $('#sheetImg').src = sheetCanvas.toDataURL('image/jpeg', .9);
+  $('#sheetInfo').textContent = info.paper.name.split('（')[0] + ' · ' + info.cols + '×' + info.rows + ' 共 ' + info.count + ' 张';
+  $('#modal').classList.add('on');
+}
+
+async function downloadSheet(){
+  const info = await buildSheet($('#paper').value);
+  if(!info) return;
+  const blob = await toBlobWithDpi(sheetCanvas, 'image/jpeg', .95, 300);
+  const specName = S.specId === 'custom' ? '自定义' : (SPECS.find(s=>s.id===S.specId)||{}).name;
+  download(blob, '排版_' + info.paper.id + '_' + specName + 'x' + info.count + '_' + stamp() + '.jpg');
+  toast('已导出排版图');
+}
+
+/* ================= 交互：修补画笔 ================= */
+let painting = false, lastPt = null;
+
+function toRaw(e){
+  const r = frame.getBoundingClientRect();
+  const {w:W, h:H} = outSize();
+  const ox = (e.clientX - r.left) * W / r.width;
+  const oy = (e.clientY - r.top) * H / r.height;
+  const sx = (ox - W/2)/S.k + S.cx;
+  const sy = (oy - H/2)/S.k + S.cy;
+  return {x: sx*maskRawW/S.iw, y: sy*maskRawH/S.ih};
+}
+
+let paintTick = false;
+function paintSeg(a, b, erase){
+  if(!fixCanvas || !maskRaw) return;
+  const {w:W} = outSize();
+  const fc = fixCtx;
+  const lw = Math.max(3, (S.brushSize / S.k) * (maskRawW / S.iw));
+  fc.strokeStyle = fc.fillStyle = erase ? '#000' : '#fff';
+  fc.lineCap = fc.lineJoin = 'round';
+  fc.lineWidth = lw;
+  fc.beginPath();
+  if(b){ fc.moveTo(a.x, a.y); fc.lineTo(b.x, b.y); fc.stroke(); }
+  else { fc.arc(a.x, a.y, lw/2, 0, Math.PI*2); fc.fill(); }
+  if(paintTick) return;
+  paintTick = true;
+  requestAnimationFrame(() => { paintTick = false; processMask(); render(); });
+}
+
+/* ================= 交互：拖动 / 缩放 ================= */
+let drag = null;
+frame.addEventListener('pointerdown', e => {
+  if(!S.img) return;
+  if(S.brush !== 'none' && fixCanvas){
+    painting = true;
+    frame.setPointerCapture(e.pointerId);
+    lastPt = toRaw(e);
+    paintSeg(lastPt, null, S.brush === 'erase');
+    return;
+  }
+  drag = {x:e.clientX, y:e.clientY};
+  frame.setPointerCapture(e.pointerId);
+});
+frame.addEventListener('pointermove', e => {
+  if(painting && lastPt){
+    const p = toRaw(e);
+    paintSeg(lastPt, p, S.brush === 'erase');
+    lastPt = p;
+    return;
+  }
+  if(!drag) return;
+  const r = frame.getBoundingClientRect();
+  const {w:W} = outSize();
+  const scale = W / r.width;
+  S.cx -= (e.clientX - drag.x) * scale / S.k;
+  S.cy -= (e.clientY - drag.y) * scale / S.k;
+  drag = {x:e.clientX, y:e.clientY};
+  render();
+});
+frame.addEventListener('pointerup', () => { drag = null; painting = false; lastPt = null; });
+frame.addEventListener('pointercancel', () => { drag = null; painting = false; lastPt = null; });
+frame.addEventListener('dblclick', () => { autofit(true); toast('已重新自动对齐'); });
+
+stage.addEventListener('wheel', e => {
+  if(!S.img || frame.hidden) return;
+  e.preventDefault();
+  const f = Math.exp(-e.deltaY * 0.0016);
+  const k2 = clamp(S.k * f, 0.15, 40);
+  S.k = k2;
+  render();
+}, {passive:false});
+
+document.addEventListener('keydown', e => {
+  if(!S.img) return;
+  if(/^(INPUT|SELECT|TEXTAREA)$/.test(document.activeElement.tagName)) return;
+  const step = (e.shiftKey ? 10 : 1) / S.k;
+  let hit = true;
+  if(e.key === 'ArrowLeft') S.cx -= step;
+  else if(e.key === 'ArrowRight') S.cx += step;
+  else if(e.key === 'ArrowUp') S.cy -= step;
+  else if(e.key === 'ArrowDown') S.cy += step;
+  else hit = false;
+  if(hit){ e.preventDefault(); render(); }
+});
+
+/* ================= 交互：上传 ================= */
+$('#pickBtn').onclick = () => $('#file').click();
+$('#file').onchange = e => { loadFile(e.target.files[0]); e.target.value = ''; };
+emptyBox.onclick = e => { if(e.target.tagName !== 'BUTTON') $('#file').click(); };
+
+['dragover','dragenter'].forEach(t => stage.addEventListener(t, e => {
+  e.preventDefault(); emptyBox.classList.add('hot');
+}));
+['dragleave','drop'].forEach(t => stage.addEventListener(t, e => {
+  e.preventDefault(); emptyBox.classList.remove('hot');
+}));
+stage.addEventListener('drop', e => {
+  const f = e.dataTransfer.files && e.dataTransfer.files[0];
+  if(f) loadFile(f);
+});
+window.addEventListener('paste', e => {
+  const items = (e.clipboardData || {}).items || [];
+  for(const it of items){
+    if(it.type && it.type.indexOf('image') === 0){
+      const f = it.getAsFile();
+      if(f){ loadFile(f); e.preventDefault(); }
+      break;
+    }
+  }
+});
+window.addEventListener('dragover', e => e.preventDefault());
+window.addEventListener('drop', e => e.preventDefault());
+
+/* ================= 交互：规格 ================= */
+function renderSpecs(){
+  $('#specs').innerHTML = SPECS.map(s => {
+    const w = s.w || mm2px(s.mm[0], s.dpi);
+    const h = s.h || mm2px(s.mm[1], s.dpi);
+    return '<button data-spec="' + s.id + '" class="' + (S.specId===s.id?'on':'') + '">' +
+      '<span class="n">' + s.name + '</span><span class="d">' + w + '×' + h + '</span></button>';
+  }).join('') + '<button data-spec="custom" class="' + (S.specId==='custom'?'on':'') + '">' +
+      '<span class="n">自定义</span><span class="d">px / mm</span></button>';
+}
+$('#specs').onclick = e => {
+  const b = e.target.closest('button[data-spec]');
+  if(!b) return;
+  S.specId = b.dataset.spec;
+  renderSpecs();
+  $('#customBox').hidden = S.specId !== 'custom';
+  if(S.img){ autofit(true); fitFrame(); render(); }
+  syncExportTip();
+};
+
+function syncExportTip(){
+  const o = outSize();
+  const p = PAPERS[0];
+  const cols = Math.floor(p.w/o.w), rows = Math.floor(p.h/o.h);
+  $('#exportTip').innerHTML = '成品 <b>' + o.w + '×' + o.h + '</b> px' +
+    (o.mm ? '（' + o.mm[0] + '×' + o.mm[1] + ' mm）' : '') +
+    ' · 6寸相纸可排 <b>' + Math.max(0,cols) + '×' + Math.max(0,rows) + '</b> 张';
+  $('#specHint').textContent = o.w + '×' + o.h;
+}
+
+/* 自定义规格 */
+function readCustom(){
+  const unit = $('#cu').value;
+  const w = parseFloat($('#cw').value) || 25;
+  const h = parseFloat($('#ch').value) || 35;
+  const dpi = clamp(parseInt($('#cdpi').value) || 300, 72, 1200);
+  S.custom = {unit, w, h, dpi};
+  const px = unit === 'mm' ? {w:mm2px(w,dpi), h:mm2px(h,dpi)} : {w:Math.round(w), h:Math.round(h)};
+  $('#cPx').textContent = '= ' + px.w + ' × ' + px.h + ' px';
+}
+['cw','ch','cdpi'].forEach(id => $('#'+id).addEventListener('input', () => {
+  readCustom();
+  if(S.specId === 'custom' && S.img){ fitFrame(); render(); syncExportTip(); }
+}));
+$('#cu').addEventListener('change', () => {
+  const unit = $('#cu').value;
+  if(unit === 'px'){
+    const px = S.custom.unit === 'mm'
+      ? {w:mm2px(S.custom.w, S.custom.dpi), h:mm2px(S.custom.h, S.custom.dpi)}
+      : {w:S.custom.w, h:S.custom.h};
+    $('#cw').value = px.w; $('#ch').value = px.h;
+  }
+  readCustom();
+  if(S.specId === 'custom' && S.img){ fitFrame(); render(); syncExportTip(); }
+});
+$('#customBox').addEventListener('click', e => e.stopPropagation());
+
+/* ================= 交互：背景 ================= */
+const BGS = [
+  {k:'white', lb:'白'}, {k:'blue', lb:'蓝'}, {k:'red', lb:'红'},
+  {k:'gray', lb:'灰'}, {k:'gradient', lb:'渐变'}, {k:'original', lb:'原图'}
+];
+function renderSw(){
+  const ICON = '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#585d63" ' +
+    'stroke-width="1.6" stroke-linecap="round"><rect x="3" y="3" width="18" height="18" rx="3"/>' +
+    '<circle cx="9" cy="9" r="1.8"/><path d="M21 15l-5-5L5 21"/></svg>';
+  const items = BGS.map(b => {
+    const cls = b.k === 'gradient' ? 'grad' : b.k === 'original' ? 'orig' : '';
+    const style = b.k === 'blue' ? 'background:' + BG_COLORS.blue
+      : b.k === 'red' ? 'background:' + BG_COLORS.red
+      : b.k === 'gray' ? 'background:' + BG_COLORS.gray
+      : b.k === 'white' ? 'background:#fff' : '';
+    return '<div class="swi' + (S.bg === b.k ? ' on' : '') + '">' +
+      '<button data-bg="' + b.k + '" class="' + cls + '" style="' + style + '" title="' + b.lb + '">' +
+      (b.k === 'original' ? ICON : '') + '</button><i>' + b.lb + '</i></div>';
+  }).join('');
+  const cu = '<div class="swi' + (S.bg === 'custom' ? ' on' : '') + '">' +
+    '<button class="swbtn" id="pickColor" title="自定义底色" style="background:' + S.customBg + '"></button>' +
+    '<i>自定</i></div>';
+  $('#sw').innerHTML = items + cu;
+}
+$('#sw').onclick = e => {
+  const pick = e.target.closest('#pickColor');
+  if(pick){ $('#customColor').click(); return; }
+  const b = e.target.closest('button[data-bg]');
+  if(!b || b.disabled) return;
+  S.bg = b.dataset.bg;
+  renderSw(); render();
+};
+$('#customColor').addEventListener('input', e => {
+  S.customBg = e.target.value; S.bg = 'custom';
+  renderSw(); render();
+});
+$('#cutout').addEventListener('change', e => {
+  S.cutout = e.target.checked;
+  if(S.cutout && !maskCanvas && S.img){ analyze(); }
+  else render();
+});
+$('#threshold').addEventListener('input', e => {
+  S.threshold = parseInt(e.target.value)/100;
+  $('#thresholdV').textContent = e.target.value + '%';
+  if(maskRaw){ processMask(); render(); }
+});
+$('#feather').addEventListener('input', e => {
+  S.feather = parseFloat(e.target.value);
+  $('#featherV').textContent = S.feather.toFixed(1) + 'px';
+  render();
+});
+
+/* ================= 交互：构图 ================= */
+function bindRange(id, apply){
+  const el = $('#' + id), lbl = $('#' + id + 'V');
+  el.addEventListener('input', () => {
+    const v = parseFloat(el.value);
+    apply(v);
+    if(lbl) lbl.textContent = el.dataset.suffix === 'pct' ? v + '%' : el.dataset.suffix === 'deg' ? v + '°' : v;
+    if(S.img) render();
+  });
+}
+$('#rot').dataset.suffix = 'deg';
+bindRange('rot', v => { S.rot = v; });
+
+/* 头部占比：以人脸中心为基准缩放 */
+$('#headRatio').addEventListener('input', e => {
+  const nr = parseFloat(e.target.value)/100;
+  const {h:H} = outSize();
+  if(S.face && S.k){
+    const anchor = (S.face.cy - S.cy)*S.k + H/2;   // 人脸中心当前在画面中的位置
+    S.k *= nr / S.headRatio;
+    S.cy = S.face.cy - (anchor - H/2)/S.k;
+  }
+  S.headRatio = nr;
+  $('#headRatioV').textContent = Math.round(nr*100) + '%';
+  if(S.img) render();
+});
+
+/* 头顶留白：垂直移动 */
+$('#topMargin').addEventListener('input', e => {
+  const nm = parseFloat(e.target.value)/100;
+  const {h:H} = outSize();
+  if(S.face && S.k){
+    S.cy = headTopSrc() - (H*nm - H/2)/S.k;
+  } else {
+    S.cy += (S.topMargin - nm) * H / S.k;
+  }
+  S.topMargin = nm;
+  $('#topMarginV').textContent = Math.round(nm*100) + '%';
+  if(S.img) render();
+});
+bindRange('rot', v => { S.rot = v; });
+bindRange('bright', v => { S.bright = v/100; });
+bindRange('contrast', v => { S.contrast = v/100; });
+$('#quality').addEventListener('input', e => {
+  S.quality = parseInt(e.target.value)/100;
+  $('#qualityV').textContent = e.target.value;
+});
+$('#brush').onclick = e => {
+  const b = e.target.closest('button[data-b]');
+  if(!b) return;
+  S.brush = b.dataset.b;
+  [...$('#brush').children].forEach(x => x.classList.toggle('on', x === b));
+  $('#brushSizeRow').hidden = S.brush === 'none';
+  frame.style.cursor = S.brush === 'none' ? 'grab' : 'crosshair';
+  if(S.brush !== 'none' && !maskCanvas) toast('请先上传照片并完成抠图');
+};
+$('#brushSize').addEventListener('input', e => {
+  S.brushSize = parseInt(e.target.value);
+  $('#brushSizeV').textContent = S.brushSize + 'px';
+});
+$('#guides').addEventListener('change', e => { S.guides = e.target.checked; drawOverlay(); });
+$('#autoBtn').onclick = () => { if(S.img){ autofit(); toast('已自动对齐'); } };
+$('#flipBtn').onclick = () => { if(S.img){ S.flip = !S.flip; render(); } };
+$('#resetBtn').onclick = () => {
+  if(!S.img) return;
+  S.rot = 0; S.flip = false; S.bright = 1; S.contrast = 1;
+  if(fixCtx){ fixCtx.clearRect(0,0,maskRawW,maskRawH); processMask(); }
+  S.headRatio = .68; S.topMargin = .10;
+  $('#rot').value = 0; $('#rotV').textContent = '0°';
+  $('#bright').value = 100; $('#brightV').textContent = '100';
+  $('#contrast').value = 100; $('#contrastV').textContent = '100';
+  $('#headRatio').value = 68; $('#headRatioV').textContent = '68%';
+  $('#topMargin').value = 10; $('#topMarginV').textContent = '10%';
+  autofit();
+  toast('已重置');
+};
+$('#fmt').onclick = e => {
+  const b = e.target.closest('button[data-f]');
+  if(!b) return;
+  S.format = b.dataset.f;
+  [...$('#fmt').children].forEach(x => x.classList.toggle('on', x === b));
+  $('#quality').disabled = S.format === 'png';
+};
+$('#dlBtn').onclick = downloadSingle;
+$('#sheetBtn').onclick = openSheet;
+$('#closeModal').onclick = () => $('#modal').classList.remove('on');
+$('#modal').onclick = e => { if(e.target.id === 'modal') $('#modal').classList.remove('on'); };
+$('#paper').onchange = () => openSheet();
+$('#sheetDl').onclick = downloadSheet;
+
+/* ================= 响应式 ================= */
+let rt;
+window.addEventListener('resize', () => {
+  clearTimeout(rt);
+  rt = setTimeout(() => { fitFrame(); drawOverlay(); }, 80);
+});
+
+/* ================= 初始化 ================= */
+$('#paper').innerHTML = PAPERS.map(p => '<option value="' + p.id + '">' + p.name + '</option>').join('');
+renderSpecs();
+renderSw();
+$('#cw').value = 25; $('#ch').value = 35; $('#cdpi').value = 300;
+syncExportTip();
+readCustom();
+$('#qualityV').textContent = '95';
+
+if(location.protocol === 'file:'){
+  const b = $('#banner');
+  b.classList.add('on');
+  b.textContent = '⚠ 当前以 file:// 打开，浏览器会拦截本地模型文件。请双击同目录下的「启动.command」，用 http 方式打开。';
+  setStatus('需本地服务');
+}
+
+/* 示例图：内置一张人像，用于快速体验 */
+$('#demoBtn').onclick = async () => {
+  try{
+    const r = await fetch('demo/sample.jpg');
+    if(!r.ok) throw new Error('404');
+    const b = await r.blob();
+    loadFile(new File([b], 'sample.jpg', {type:'image/jpeg'}));
+  }catch(e){ toast('示例图不可用，请上传自己的照片'); }
+};
+
+/* ---- 自检（?selftest=1） ---- */
+async function selftest(){
+  const log = [];
+  const add = t => log.push(t);
+  try{
+    await new Promise(r => setTimeout(r, 200));
+    if(!S.img){ add('FAIL 图片未载入'); }
+    add('img=' + S.iw + 'x' + S.ih + ' face=' + (S.face ? 'yes' : 'no') + ' mask=' + (maskCanvas ? 'yes' : 'no'));
+    for(const sp of SPECS.map(x => x.id).concat(['custom'])){
+      S.specId = sp;
+      const o = outSize();
+      const c = flatCanvas();
+      add('spec ' + sp + ' -> ' + c.width + 'x' + c.height + ' expect ' + o.w + 'x' + o.h +
+        (c.width === o.w && c.height === o.h ? ' OK' : ' FAIL'));
+    }
+    S.specId = 'p1';
+    const c1 = flatCanvas();
+    const jpg = await toBlobWithDpi(c1, 'image/jpeg', .95, 300);
+    const buf = new Uint8Array(await jpg.arrayBuffer());
+    const units = buf[13], dx = (buf[14]<<8)|buf[15];
+    add('jpg dpi units=' + units + ' x=' + dx + ' bytes=' + buf.length + (units === 1 && dx === 300 ? ' OK' : ' FAIL'));
+    const png = await toBlobWithDpi(c1, 'image/png', 1, 300);
+    const pb = new Uint8Array(await png.arrayBuffer());
+    const tag = String.fromCharCode(pb[37],pb[38],pb[39],pb[40]);
+    const ppm = pb[41]*16777216 + pb[42]*65536 + pb[43]*256 + pb[44];
+    add('png chunk=' + tag + ' ppm=' + ppm + ' bytes=' + pb.length +
+      (tag === 'pHYs' && Math.abs(ppm - 11811) < 3 ? ' OK' : ' FAIL'));
+    for(const pp of PAPERS){
+      const info = await buildSheet(pp.id);
+      add('sheet ' + pp.id + ' ' + (info ? info.cols + 'x' + info.rows + '=' + info.count + ' canvas ' +
+        info.canvas.width + 'x' + info.canvas.height : 'FAIL'));
+    }
+    // 画笔：涂一块后蒙版应变化
+    if(fixCtx){
+      const mx = Math.round(maskRawW), my = Math.round(maskRawH);
+      const sample = () => {
+        const c = maskCanvas.getContext('2d', {willReadFrequently:true});
+        return c.getImageData(mx, my, 1, 1).data[3];
+      };
+      const before = sample();
+      fixCtx.fillStyle = '#000'; fixCtx.fillRect(0,0,maskRawW,maskRawH);
+      processMask();
+      const erased = sample();
+      fixCtx.fillStyle = '#fff'; fixCtx.fillRect(0,0,maskRawW,maskRawH);
+      processMask();
+      const restored = sample();
+      add('brush before=' + before + ' erase=' + erased + ' restore=' + restored +
+        (erased < 8 && restored > 247 ? ' OK' : ' FAIL'));
+      fixCtx.clearRect(0,0,maskRawW,maskRawH); processMask();
+    }
+    const ctx = S.img ? 'render ok' : '';
+    add(ctx + ' canvas=' + out.width + 'x' + out.height);
+  }catch(e){ add('EXCEPTION ' + e.message + '\n' + e.stack); }
+  const pre = document.createElement('pre');
+  pre.id = 'selftest';
+  pre.textContent = 'SELFTEST-BEGIN\n' + log.join('\n') + '\nSELFTEST-END';
+  document.body.appendChild(pre);
+  document.title = 'selftest done';
+}
+/* ?img=路径 可直接载入一张图（分享/演示用） */
+const QP = new URLSearchParams(location.search);
+if(QP.get('th')){ S.threshold = clamp(parseFloat(QP.get('th')), .3, .72);
+  $('#threshold').value = Math.round(S.threshold*100); $('#thresholdV').textContent = Math.round(S.threshold*100)+'%'; }
+if(QP.get('fe')){ S.feather = parseFloat(QP.get('fe')); $('#feather').value = S.feather; $('#featherV').textContent = S.feather.toFixed(1)+'px'; }
+const qsImg = QP.get('img');
+if(qsImg){
+  fetch(qsImg).then(r => r.blob()).then(b => {
+    const name = decodeURIComponent(qsImg).split('/').pop() || 'photo.jpg';
+    loadFile(new File([b], name, {type: b.type || 'image/jpeg'}));
+  }).catch(() => toast('图片载入失败'));
+}
+
+if(QP.get('selftest')) setTimeout(selftest, 100);
+
+})();
+</script>
+</body>
+</html>
